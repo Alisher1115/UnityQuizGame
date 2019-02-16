@@ -1,125 +1,125 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using System.Collections.Generic;
 
 public class GameController : MonoBehaviour
 {
+    public SimpleObjectPool answerButtonObjectPool;
+    public Text questionText;
+    public Text scoreDisplay;
+    public Text timeRemainingDisplay;
+    public Transform answerButtonParent;
 
-    [SerializeField]
-    private Text timeRemainingDisplayText;
+    public GameObject questionDisplay;
+    public GameObject roundEndDisplay;
+    public Text highScoreDisplay;
 
-    [SerializeField]
-    private GameObject questionDisplay;
-
-    [SerializeField]
-    private GameObject roundEndDisplay;
-
-    [SerializeField]
-    private Text scoreDisplayText;
-
-    [SerializeField]
-    private Text questionDisplayText;
-
-    [SerializeField]
-    private SimpleObjectPool answerButtonObjectPool;
-
-    [SerializeField]
-    private Transform answerButtonParent;
-
-    private DataController _dataController;
-    private RoundData _currentRoundData;
+    private DataController dataController;
+    private RoundData currentRoundData;
     private QuestionData[] questionPool;
 
-    private bool isRoundActive;
+    private bool isRoundActive = false;
     private float timeRemaining;
-    private int questionIndex;
     private int playerScore;
+    private int questionIndex;
     private List<GameObject> answerButtonGameObjects = new List<GameObject>();
 
-
-    // Start is called before the first frame update
     void Start()
     {
-        _dataController = FindObjectOfType<DataController>();
-        _currentRoundData = _dataController.GetCurrentRoundData(); 
-        questionPool = _currentRoundData.questions; 
-        timeRemaining = _currentRoundData.timeLimitInSeconds;    
+        dataController = FindObjectOfType<DataController>();                              // Store a reference to the DataController so we can request the data we need for this round
+
+        currentRoundData = dataController.GetCurrentRoundData();                            // Ask the DataController for the data for the current round. At the moment, we only have one round - but we could extend this
+        questionPool = currentRoundData.questions;                                          // Take a copy of the questions so we could shuffle the pool or drop questions from it without affecting the original RoundData object
+
+        timeRemaining = currentRoundData.timeLimitInSeconds;                                // Set the time limit for this round based on the RoundData object
         UpdateTimeRemainingDisplay();
         playerScore = 0;
         questionIndex = 0;
+
         ShowQuestion();
         isRoundActive = true;
     }
 
-    private void ShowQuestion () {
-        RemoveAnswerButtons();
-        QuestionData questionData = questionPool[questionIndex];
-        questionDisplayText.text = questionData.questionText;
-        for (int i = 0; i < questionData.answers.Length; i++)
+    void Update()
+    {
+        if (isRoundActive)
         {
-            GameObject answerButtonGameObject = answerButtonObjectPool.GetObject();
+            timeRemaining -= Time.deltaTime;                                                // If the round is active, subtract the time since Update() was last called from timeRemaining
+            UpdateTimeRemainingDisplay();
+
+            if (timeRemaining <= 0f)                                                     // If timeRemaining is 0 or less, the round ends
+            {
+                EndRound();
+            }
+        }
+    }
+
+    void ShowQuestion()
+    {
+        RemoveAnswerButtons();
+
+        QuestionData questionData = questionPool[questionIndex];                            // Get the QuestionData for the current question
+        questionText.text = questionData.questionText;                                      // Update questionText with the correct text
+
+        for (int i = 0; i < questionData.answers.Length; i ++)                               // For every AnswerData in the current QuestionData...
+        {
+            GameObject answerButtonGameObject = answerButtonObjectPool.GetObject();         // Spawn an AnswerButton from the object pool
             answerButtonGameObjects.Add(answerButtonGameObject);
             answerButtonGameObject.transform.SetParent(answerButtonParent);
+            answerButtonGameObject.transform.localScale = Vector3.one;
 
             AnswerButton answerButton = answerButtonGameObject.GetComponent<AnswerButton>();
-            answerButton.Setup(questionData.answers[i]); 
-        }
-
-    }
-
-    public void AnsweButtonClicked (bool isCorrect) {
-        if (isCorrect)
-        {
-            playerScore += _currentRoundData.pointsAddedForCorrectAnswer;
-            scoreDisplayText.text = "Баллы: " + playerScore.ToString();
-        }  
-
-        if (questionPool.Length > questionIndex + 1)
-        {
-            questionIndex++;
-            ShowQuestion();
-        }  
-        else {
-            EndRound();
+            answerButton.Setup(questionData.answers[i]);                                    // Pass the AnswerData to the AnswerButton so the AnswerButton knows what text to display and whether it is the correct answer
         }
     }
 
-    public void EndRound () { 
-        isRoundActive = false;
-        questionDisplay.SetActive(false);
-        roundEndDisplay.SetActive(true);
-    }
-
-    public void ReturnToMenu(){
-        SceneManager.LoadScene("MenuScreen");
-    }
-
-    private void RemoveAnswerButtons(){
-        while(answerButtonGameObjects.Count > 0) 
+    void RemoveAnswerButtons()
+    {
+        while (answerButtonGameObjects.Count > 0)                                            // Return all spawned AnswerButtons to the object pool
         {
             answerButtonObjectPool.ReturnObject(answerButtonGameObjects[0]);
             answerButtonGameObjects.RemoveAt(0);
         }
     }
 
-    private void UpdateTimeRemainingDisplay()
+    public void AnswerButtonClicked(bool isCorrect)
     {
-        timeRemainingDisplayText.text = "Время: " + Mathf.Round (timeRemaining).ToString ();
+        if (isCorrect)
+        {
+            playerScore += currentRoundData.pointsAddedForCorrectAnswer;                    // If the AnswerButton that was clicked was the correct answer, add points
+            scoreDisplay.text = "Баллы: "+playerScore.ToString();
+        }
+
+        if(questionPool.Length > questionIndex + 1)                                          // If there are more questions, show the next question
+        {
+            questionIndex++;
+            ShowQuestion();
+        }
+        else                                                                                // If there are no more questions, the round ends
+        {
+            EndRound();
+        }
     }
 
-    // Update is called once per frame
-    void Update()
+    private void UpdateTimeRemainingDisplay()
     {
-        if (isRoundActive) 
-        {
-            timeRemaining -= Time.deltaTime;
-            UpdateTimeRemainingDisplay();
-            if (timeRemaining <= 0f)
-            {
-                EndRound();
-            }
-        }
+        timeRemainingDisplay.text = "Время: "+Mathf.Round(timeRemaining).ToString();
+    }
+
+    public void EndRound()
+    {
+        isRoundActive = false;
+
+        dataController.SubmitNewPlayerScore(playerScore);
+        highScoreDisplay.text = "Лучший результат: "+ dataController.GetHighestPlayerScore().ToString();
+
+        questionDisplay.SetActive(false);
+        roundEndDisplay.SetActive(true);
+    }
+
+    public void ReturnToMenu()
+    {
+        SceneManager.LoadScene("MenuScreen");
     }
 }
